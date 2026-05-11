@@ -1,5 +1,4 @@
 import asyncio
-import re
 import os
 from playwright.async_api import BrowserContext , async_playwright, Page
 
@@ -140,7 +139,8 @@ async def _scrape():
             # args=["--auto-open-devtools-for-tabs"]
         )
 
-        page = await _load_login_info(STATE_PATH, browser).new_page()
+        context = await _load_login_info(STATE_PATH, browser)
+        page = await context.new_page()
         await page.goto(URL)
 
         if await _need_login(page):await _login_by_msg(page)
