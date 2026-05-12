@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 from datetime import datetime
 import json
@@ -150,12 +151,13 @@ def _safe_filename(text: str) -> str:
     # Windows 文件名非法字符替换
     return re.sub(r'[\\/:*?"<>|]', "_", text).strip()
 
-def _save_items_to_jsonl(items: list[dict], keyword: str, data_path: str = DATA_PATH) -> str:
+def _save_items_to_jsonl(items: list[dict], keyword: str, max_items: int, data_path: str = DATA_PATH) -> str:
     '''
     保存数据到jsonl文件
     Args:
         items: 数据列表
         keyword: 搜索关键词
+        max_items: 最大爬取数量
         data_path: 数据保存路径
     Returns:
         str: 文件路径
@@ -164,7 +166,7 @@ def _save_items_to_jsonl(items: list[dict], keyword: str, data_path: str = DATA_
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_keyword = _safe_filename(keyword)
-    filename = f"xhs_{safe_keyword}_{ts}.jsonl"
+    filename = f"xhs_{safe_keyword}_{max_items}_{ts}.jsonl"
     filepath = os.path.join(data_path, filename)
 
     with open(filepath, "w", encoding="utf-8") as f:
@@ -186,10 +188,10 @@ async def _search_keyword(page: Page, keyword: str, max_items: int = MAX_ITEMS, 
     await search_input.fill(keyword)
     await search_input.press("Enter")
 
-    filter_button = page.locator("div").filter(
-        has_text=re.compile(r"^筛选$")
-    )
-    await filter_button.hover()
+    # filter_button = page.locator("div").filter(
+    #     has_text=re.compile(r"^筛选$")
+    # )
+    # await filter_button.hover()
 
     # 发布时间筛选（默认一天内）
     # time_filter = page.locator(".filters").filter(has_text="发布时间").first
@@ -200,7 +202,7 @@ async def _search_keyword(page: Page, keyword: str, max_items: int = MAX_ITEMS, 
     items = await _iter_notes(page, max_items=max_items, max_idle_rounds=max_idle_rounds)
     
     # 保存数据
-    saved_path = _save_items_to_jsonl(items, keyword)
+    saved_path = _save_items_to_jsonl(items, keyword, max_items)
     print(f"已保存 {len(items)} 条到: {saved_path}")
 
 async def _iter_notes(page, max_items=MAX_ITEMS, max_idle_rounds=MAX_IDLE_ROUNDS)->list[dict]:
@@ -258,7 +260,10 @@ async def _iter_notes(page, max_items=MAX_ITEMS, max_idle_rounds=MAX_IDLE_ROUNDS
                 continue
             try:
                 # 获取标题
-                title = (await page.locator("#detail-title").inner_text()).strip()  if await page.locator("#detail-title").inner_text() else ""
+                title_dom = page.locator("#detail-title")
+                title = ""
+                if await title_dom.count() > 0:
+                    title = (await title_dom.inner_text()).strip() 
 
                 # 作者
                 author_dom = page.locator("div.author-container span.username")
@@ -273,7 +278,6 @@ async def _iter_notes(page, max_items=MAX_ITEMS, max_idle_rounds=MAX_IDLE_ROUNDS
                     description_dom = description_dom_list.nth(i)
                     description += (await description_dom.inner_text()).strip() + " "
                 description = description.strip() if description else ""  
-                print(description)  
 
                 # 笔记tag
                 tag_doms = page.locator("#detail-desc").locator("a.tag")
@@ -318,14 +322,18 @@ async def _iter_notes(page, max_items=MAX_ITEMS, max_idle_rounds=MAX_IDLE_ROUNDS
         idle_rounds = idle_rounds + 1 if len(seen_ids) == before else 0
     return results
 
-async def _scrape():
+async def _scrape(keyword: str, max_items: int, headless: bool):
     '''
     爬取数据（）
+    Args:
+        keyword: 搜索关键词
+        max_items: 最大爬取数量
+        headless: 是否无头模式
     '''
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             channel="chrome",
-            headless=False, 
+            headless=headless, 
             slow_mo=50,
             # args=["--auto-open-devtools-for-tabs"]
         )
@@ -337,7 +345,14 @@ async def _scrape():
         if await _need_login(page):await _login_by_msg(page)
 
         # 搜索关键词
-        await _search_keyword(page, keyword='羽毛球', max_items=10, max_idle_rounds=3)
+        await _search_keyword(page, keyword=keyword, max_items=max_items, max_idle_rounds=MAX_IDLE_ROUNDS)
 
 if __name__ == "__main__":
-    asyncio.run(_scrape())
+    parser = argparse.ArgumentParser(description="小红书爬虫")
+    parser.add_argument("--key_word", type=str, default=KEYWORD, help="搜索关键词（不能为空）")
+    parser.add_argument("--max_items", type=int, default=MAX_ITEMS, help="最大爬取数量（正整数，建议 <= 500）")
+    parser.add_argument("--headless", type=bool, default=False, help="是否无头模式，默认为否")
+    args = parser.parse_args()
+    print(f"开始爬取关键词: {args.key_word}, 最大爬取数量: {args.max_items}")
+
+    asyncio.run(_scrape(args.key_word, args.max_items, args.headless))
