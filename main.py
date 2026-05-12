@@ -1,12 +1,17 @@
 import asyncio
+from datetime import datetime
+import json
 import os
 import re
 from playwright.async_api import BrowserContext , async_playwright, Page, TimeoutError as PlaywrightTimeoutError
 
 # 配置
 STATE_PATH = "state.json" # 登录态保存路径
+DATA_PATH = "data/" # 数据保存路径
 URL = "https://www.xiaohongshu.com/explore" # 首页URL
 KEYWORD = "羽毛球鞋" # 搜索关键词
+MAX_ITEMS = 30 # 最大爬取数量
+MAX_IDLE_ROUNDS = 3 # 最大空闲轮次
 TIME_FILTER = ["一天内", "一周内", "半年内", "不限"] # 发布时间筛选
 
 async def _need_login(page: Page) -> bool:
@@ -134,45 +139,49 @@ async def _login_by_msg(page: Page):
     print(">>>登录成功")
     await _save_login_info(STATE_PATH,page)
 
-async def _iter_note_items_once(page: Page)->list[dict]:
+def _safe_filename(text: str) -> str:
     '''
-    爬取一次数据
+    安全文件名
     Args:
-        page: 页面对象
+        text: 文本
+    Returns:
+        str: 安全文件名
     '''
-    # 等待列表出现
-    await page.wait_for_selector(".feeds-container section.note-item")
-    items = page.locator(".feeds-container section.note-item")
-    count = await items.count()
-    print(f"当前可见 note-item 数量: {count}")
+    # Windows 文件名非法字符替换
+    return re.sub(r'[\\/:*?"<>|]', "_", text).strip()
 
-    for i in range(count):
-        item = items.nth(i)
-        await item.click()
+def _save_items_to_jsonl(items: list[dict], keyword: str, data_path: str = DATA_PATH) -> str:
+    '''
+    保存数据到jsonl文件
+    Args:
+        items: 数据列表
+        keyword: 搜索关键词
+        data_path: 数据保存路径
+    Returns:
+        str: 文件路径
+    '''
+    os.makedirs(data_path, exist_ok=True)
 
-        close_button = page.locator(".close").first
-        await close_button.wait_for(state="visible")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_keyword = _safe_filename(keyword)
+    filename = f"xhs_{safe_keyword}_{ts}.jsonl"
+    filepath = os.path.join(data_path, filename)
 
-        title_text = page.locator("#detail-title")
-        if await title_text.count() > 0:
-            title = await title_text.inner_text()
-            print(f"{i+1}-标题: {title}")
-        else:
-            print(f"{i+1}-未找到标题")
+    with open(filepath, "w", encoding="utf-8") as f:
+        for item in items:
+            f.write(json.dumps(item, ensure_ascii=False) + "\n")
 
-        # 关闭弹窗详情页
-        await close_button.click()
-        await close_button.wait_for(state="hidden")
-        
-    return []
+    return filepath
 
-async def _search_keyword(page: Page, keyword: str):
+async def _search_keyword(page: Page, keyword: str, max_items: int = MAX_ITEMS, max_idle_rounds: int = MAX_IDLE_ROUNDS):
     '''
     搜索关键词
     Args:
         page: 页面对象
         keyword: 搜索关键词
-    '''    
+        max_items: 最大爬取数量
+        max_idle_rounds: 最大空闲轮次
+    '''
     search_input = page.get_by_role("textbox", name="搜索小红书")
     await search_input.fill(keyword)
     await search_input.press("Enter")
@@ -183,14 +192,18 @@ async def _search_keyword(page: Page, keyword: str):
     await filter_button.hover()
 
     # 发布时间筛选（默认一天内）
-    time_filter = page.locator(".filters").filter(has_text="发布时间").first
-    filter_1day = time_filter.locator(".tags:not([aria-hidden='true'])").filter(has_text="一天内").first
-    await filter_1day.click()
+    # time_filter = page.locator(".filters").filter(has_text="发布时间").first
+    # filter_1day = time_filter.locator(".tags:not([aria-hidden='true'])").filter(has_text="一天内").first
+    # await filter_1day.click()
 
     # 爬取数据
-    items = await _iter_notes(page, max_items=30, max_idle_rounds=2)
+    items = await _iter_notes(page, max_items=max_items, max_idle_rounds=max_idle_rounds)
+    
+    # 保存数据
+    saved_path = _save_items_to_jsonl(items, keyword)
+    print(f"已保存 {len(items)} 条到: {saved_path}")
 
-async def _iter_notes(page, max_items=100, max_idle_rounds=3)->list[dict]:
+async def _iter_notes(page, max_items=MAX_ITEMS, max_idle_rounds=MAX_IDLE_ROUNDS)->list[dict]:
     '''
     爬取数据
     Args:
@@ -199,32 +212,26 @@ async def _iter_notes(page, max_items=100, max_idle_rounds=3)->list[dict]:
         max_idle_rounds: 最大空闲轮次
     Returns:
         list[dict]: 爬取数据
-            id: 笔记ID
+            index: 序号
+            id: 笔记ID(假)
+            author: 作者
+            description: 笔记内容
+            tag_description: 笔记tag
+            time_location: 时间地点
             title: 笔记标题
     '''
     await page.wait_for_selector(".feeds-container section.note-item")
-    feed = page.locator(".feeds-container").first
     seen_ids = set()
     results = []
     idle_rounds = 0
+
     while len(results) < max_items and idle_rounds < max_idle_rounds:
         before = len(seen_ids)
         cards = page.locator(".feeds-container section.note-item")
         total_count = await cards.count()
-
+        
         for i in range(total_count):
             card = cards.nth(i)
-            in_viewport = await card.evaluate(
-                """(el) => {
-                    const feed = document.querySelector(".feeds-container");
-                    if (!feed) return false;
-                    const r = el.getBoundingClientRect();
-                    const f = feed.getBoundingClientRect();
-                    return r.bottom > f.top && r.top < f.bottom && r.right > f.left && r.left < f.right;
-                }"""
-            )
-            if not in_viewport:
-                continue
 
             # 只处理当前视口内的新卡片：优先用 href
             note_id = await card.evaluate(
@@ -239,40 +246,77 @@ async def _iter_notes(page, max_items=100, max_idle_rounds=3)->list[dict]:
             if note_id == "" or note_id in seen_ids:
                 continue
             
+            # 获取note_id
             seen_ids.add(note_id)
 
-            await card.scroll_into_view_if_needed()
+            # 获取详情的数据
             await card.click()
-
             try:
                 close_button = page.locator(".close").first
                 await close_button.wait_for(state="visible", timeout=2500)
             except PlaywrightTimeoutError:
                 continue
-
-            title = None
             try:
-                await page.wait_for_selector("#detail-title", timeout=2000)
-                title = (await page.locator("#detail-title").inner_text()).strip()
+                # 获取标题
+                title = (await page.locator("#detail-title").inner_text()).strip()  if await page.locator("#detail-title").inner_text() else ""
+
+                # 作者
+                author_dom = page.locator("div.author-container span.username")
+                author = (await author_dom.inner_text()).strip() if await author_dom.count() > 0 else ""
+                    
+                # 笔记内容
+                content_container = page.locator("#detail-desc span.note-text")
+                description_dom_list = content_container.locator(":scope > span")
+                description_dom_count = await description_dom_list.count()
+                description = ""
+                for i in range(description_dom_count):
+                    description_dom = description_dom_list.nth(i)
+                    description += (await description_dom.inner_text()).strip() + " "
+                description = description.strip() if description else ""  
+                print(description)  
+
+                # 笔记tag
+                tag_doms = page.locator("#detail-desc").locator("a.tag")
+                tag_count = await tag_doms.count()
+                tag_description = ""
+                for i in range(tag_count):
+                    tag_dom = tag_doms.nth(i)
+                    tag_name = (await tag_dom.inner_text()).strip()
+                    tag_description += tag_name + " "
+                tag_description = tag_description.strip() if tag_description else ""
+
+                # 时间地点
+                time_location_dom = page.locator("div.bottom-container span.date")
+                time_location = (await time_location_dom.inner_text()).strip() if await time_location_dom.count() > 0 else ""
+
+                # 获取数据
+                results.append({
+                    "index": len(results) + 1,
+                    "id": note_id, 
+                    "title": title,
+                    "author": author,
+                    "description": description,
+                    "tag_description": tag_description,
+                    "time_location": time_location
+                    }
+                )
+                print(f"{results[-1]}")
             except PlaywrightTimeoutError:
-                pass
-
-            results.append({"id": note_id, "title": title})
-
-            print(f"{len(results)} - {title or '未找到标题'}")
+                continue
             
-            await close_button.click()
-            await close_button.wait_for(state="hidden", timeout=2500)
-
+            # 关闭详情
+            if await close_button.is_visible():
+                await page.keyboard.press("Escape")
+                await page.wait_for_timeout(500)
+            
             if len(results) >= max_items:
                 break
 
-        # 当前视口处理完后再滚动，触发下一批数据渲染
-        await feed.evaluate("el => el.scrollBy(0, Math.floor(el.clientHeight * 0.9))")
-        await page.wait_for_timeout(700)
+            await card.scroll_into_view_if_needed()
+            await page.wait_for_timeout(500)
+
         idle_rounds = idle_rounds + 1 if len(seen_ids) == before else 0
     return results
-
 
 async def _scrape():
     '''
@@ -293,7 +337,7 @@ async def _scrape():
         if await _need_login(page):await _login_by_msg(page)
 
         # 搜索关键词
-        await _search_keyword(page, KEYWORD)
+        await _search_keyword(page, keyword='羽毛球', max_items=10, max_idle_rounds=3)
 
 if __name__ == "__main__":
     asyncio.run(_scrape())
