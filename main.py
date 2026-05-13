@@ -267,7 +267,7 @@ async def _iter_notes(page, max_items=MAX_ITEMS, max_idle_rounds=MAX_IDLE_ROUNDS
 
                 # 作者
                 author_dom = page.locator("div.author-container span.username")
-                author = (await author_dom.inner_text()).strip() if await author_dom.count() > 0 else ""
+                comment_author = (await author_dom.inner_text()).strip() if await author_dom.count() > 0 else ""
                     
                 # 笔记内容
                 content_container = page.locator("#detail-desc span.note-text")
@@ -295,9 +295,9 @@ async def _iter_notes(page, max_items=MAX_ITEMS, max_idle_rounds=MAX_IDLE_ROUNDS
 
                 # 点赞数
                 like_dom = page.locator("div.buttons.engage-bar-style span.like-wrapper.like-active span.count").first
-                like_count = ""
+                comment_like_count = ""
                 if await like_dom.count() > 0:
-                    like_count = (await like_dom.inner_text()).strip()
+                    comment_like_count = (await like_dom.inner_text()).strip()
 
                 # 收藏数
                 collect_dom = page.locator("div.buttons.engage-bar-style span.collect-wrapper span.count").first
@@ -320,38 +320,45 @@ async def _iter_notes(page, max_items=MAX_ITEMS, max_idle_rounds=MAX_IDLE_ROUNDS
 
                     # 评论作者
                     author_dom = comment_dom.locator("div.author a").first
-                    author = ""
+                    comment_author = ""
                     if await author_dom.count() > 0:
-                        author = (await author_dom.inner_text()).strip()
+                        comment_author = (await author_dom.inner_text()).strip()
 
                     # 评论内容
                     content_dom = comment_dom.locator("div.content span.note-text span").first
-                    content = ""
+                    comment_content = ""
                     if await content_dom.count() > 0:
-                        content = (await content_dom.inner_text()).strip()
+                        comment_content = (await content_dom.inner_text()).strip()
 
                     # 点赞数量
                     like_dom = comment_dom.locator("div.like span.count").first
-                    like_count = ""
+                    comment_like_count = ""
                     if await like_dom.count() > 0:
-                        like_count = (await like_dom.inner_text()).strip()
+                        comment_like_count = (await like_dom.inner_text()).strip()
 
                     # 回复数量
                     reply_dom = comment_dom.locator("div.reply.icon-container span.count").first
-                    reply_count = ""
+                    comment_reply_count = ""
                     if await reply_dom.count() > 0:
-                        reply_count = (await reply_dom.inner_text()).strip()
+                        comment_reply_count = (await reply_dom.inner_text()).strip()
+                    
+                    comment_list.append({
+                        "comment_author": comment_author,
+                        "comment_content": comment_content,
+                        "comment_like_count": comment_like_count,
+                        "comment_reply_count": comment_reply_count
+                    })
                 
                 # 获取数据
                 results.append({
                     "index": len(results) + 1,
                     "id": note_id, 
                     "title": title,
-                    "author": author,
+                    "author": comment_author,
                     "description": description,
                     "tag_description": tag_description,
                     "time_location": time_location,
-                    "like_count": like_count,
+                    "like_count": comment_like_count,
                     "collect_count": collect_count,
                     "comment_count": comment_count,
                     "comment_list": comment_list
