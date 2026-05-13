@@ -109,7 +109,7 @@ async def _login_by_msg(page: Page):
     phone_input = page.get_by_placeholder("输入手机号")
     # 2. 人工输入
     print(">>> 请输入手机号")
-    phone = input("验证码: ")
+    phone = input("手机号: ")
     # 3. 填入页面
     await phone_input.fill(phone)
 
