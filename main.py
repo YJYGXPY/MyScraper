@@ -166,7 +166,7 @@ def _save_items_to_jsonl(items: list[dict], keyword: str, max_items: int, data_p
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_keyword = _safe_filename(keyword)
-    filename = f"xhs_{safe_keyword}_{max_items}_{ts}.jsonl"
+    filename = f"xhs_{ts}_{safe_keyword}_{max_items}.jsonl"
     filepath = os.path.join(data_path, filename)
 
     with open(filepath, "w", encoding="utf-8") as f:
@@ -293,6 +293,55 @@ async def _iter_notes(page, max_items=MAX_ITEMS, max_idle_rounds=MAX_IDLE_ROUNDS
                 time_location_dom = page.locator("div.bottom-container span.date")
                 time_location = (await time_location_dom.inner_text()).strip() if await time_location_dom.count() > 0 else ""
 
+                # 点赞数
+                like_dom = page.locator("div.buttons.engage-bar-style span.like-wrapper.like-active span.count").first
+                like_count = ""
+                if await like_dom.count() > 0:
+                    like_count = (await like_dom.inner_text()).strip()
+
+                # 收藏数
+                collect_dom = page.locator("div.buttons.engage-bar-style span.collect-wrapper span.count").first
+                collect_count = ""
+                if await collect_dom.count() > 0:
+                    collect_count = (await collect_dom.inner_text()).strip()
+
+                # 评论数
+                comment_dom = page.locator("div.buttons.engage-bar-style span.chat-wrapper span.count").first
+                comment_count = ""
+                if await comment_dom.count() > 0:
+                    comment_count = (await comment_dom.inner_text()).strip()
+
+                # 评论
+                comment_doms = page.locator("div.parent-comment")
+                comment_count = await comment_doms.count()
+                comment_list = []
+                for i in range(comment_count):
+                    comment_dom = comment_doms.nth(i)
+
+                    # 评论作者
+                    author_dom = comment_dom.locator("div.author a").first
+                    author = ""
+                    if await author_dom.count() > 0:
+                        author = (await author_dom.inner_text()).strip()
+
+                    # 评论内容
+                    content_dom = comment_dom.locator("div.content span.note-text span").first
+                    content = ""
+                    if await content_dom.count() > 0:
+                        content = (await content_dom.inner_text()).strip()
+
+                    # 点赞数量
+                    like_dom = comment_dom.locator("div.like span.count").first
+                    like_count = ""
+                    if await like_dom.count() > 0:
+                        like_count = (await like_dom.inner_text()).strip()
+
+                    # 回复数量
+                    reply_dom = comment_dom.locator("div.reply.icon-container span.count").first
+                    reply_count = ""
+                    if await reply_dom.count() > 0:
+                        reply_count = (await reply_dom.inner_text()).strip()
+                
                 # 获取数据
                 results.append({
                     "index": len(results) + 1,
@@ -301,7 +350,11 @@ async def _iter_notes(page, max_items=MAX_ITEMS, max_idle_rounds=MAX_IDLE_ROUNDS
                     "author": author,
                     "description": description,
                     "tag_description": tag_description,
-                    "time_location": time_location
+                    "time_location": time_location,
+                    "like_count": like_count,
+                    "collect_count": collect_count,
+                    "comment_count": comment_count,
+                    "comment_list": comment_list
                     }
                 )
                 print(f"{results[-1]}")
@@ -335,7 +388,7 @@ async def _scrape(keyword: str, max_items: int, headless: bool):
             channel="chrome",
             headless=headless, 
             slow_mo=50,
-            # args=["--auto-open-devtools-for-tabs"]
+            args=["--auto-open-devtools-for-tabs"]
         )
 
         context = await _load_login_info(STATE_PATH, browser)
