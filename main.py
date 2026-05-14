@@ -242,6 +242,13 @@ async def _iter_notes(page, max_items=MAX_ITEMS, max_comments=MAX_COMMENTS, max_
                 comment_content: 评论内容
                 comment_like_count: 点赞数
                 comment_reply_count: 回复数
+                reply_list: 回复列表
+                    comment_id: 评论ID
+                    index: 序号
+                    reply_id: 回复ID
+                    reply_author: 回复作者
+                    reply_content: 回复内容
+                    reply_like_count: 点赞数
     '''
     print(f"开始爬取笔记...(最大爬取数量: {max_items})\n")
     await page.wait_for_selector(".feeds-container section.note-item")
