@@ -12,7 +12,9 @@ DATA_PATH = "data/" # 数据保存路径
 URL = "https://www.xiaohongshu.com/explore" # 首页URL
 KEYWORD = "羽毛球鞋" # 搜索关键词
 MAX_ITEMS = 30 # 最大爬取数量
+MAX_COMMENTS = 100 # 最大爬取评论数量
 MAX_IDLE_ROUNDS = 3 # 最大空闲轮次
+MAX_IDLE_COMMENT_ROUNDS = 3 # 最大空闲评论轮次
 TIME_FILTER = ["一天内", "一周内", "半年内", "不限"] # 发布时间筛选
 
 async def _need_login(page: Page) -> bool:
@@ -205,13 +207,15 @@ async def _search_keyword(page: Page, keyword: str, max_items: int = MAX_ITEMS, 
     saved_path = _save_items_to_jsonl(items, keyword, max_items)
     print(f"已保存 {len(items)} 条到: {saved_path}")
 
-async def _iter_notes(page, max_items=MAX_ITEMS, max_idle_rounds=MAX_IDLE_ROUNDS)->list[dict]:
+async def _iter_notes(page, max_items=MAX_ITEMS, max_comments=MAX_COMMENTS, max_idle_rounds=MAX_IDLE_ROUNDS, max_idle_comment_rounds=MAX_IDLE_COMMENT_ROUNDS)->list[dict]:
     '''
     爬取数据
     Args:
         page: 页面对象
         max_items: 最大爬取数量
+        max_comments: 最大爬取评论数量
         max_idle_rounds: 最大空闲轮次
+        max_idle_comment_rounds: 最大空闲评论轮次
     Returns:
         list[dict]: 爬取数据
             index: 序号
@@ -221,12 +225,23 @@ async def _iter_notes(page, max_items=MAX_ITEMS, max_idle_rounds=MAX_IDLE_ROUNDS
             tag_description: 笔记tag
             time_location: 时间地点
             title: 笔记标题
+            like_count: 点赞数
+            collect_count: 收藏数
+            comment_count: 评论数
+            comment_list: 评论列表
+                note_id: 笔记ID
+                index: 序号
+                comment_id: 评论ID
+                comment_author: 评论作者
+                comment_content: 评论内容
+                comment_like_count: 点赞数
+                comment_reply_count: 回复数
     '''
     await page.wait_for_selector(".feeds-container section.note-item")
+    
     seen_ids = set()
     results = []
     idle_rounds = 0
-
     while len(results) < max_items and idle_rounds < max_idle_rounds:
         before = len(seen_ids)
         cards = page.locator(".feeds-container section.note-item")
@@ -312,42 +327,7 @@ async def _iter_notes(page, max_items=MAX_ITEMS, max_idle_rounds=MAX_IDLE_ROUNDS
                     comment_count = (await comment_dom.inner_text()).strip()
 
                 # 评论
-                comment_doms = page.locator("div.parent-comment")
-                comment_count = await comment_doms.count()
-                comment_list = []
-                for i in range(comment_count):
-                    comment_dom = comment_doms.nth(i)
-
-                    # 评论作者
-                    author_dom = comment_dom.locator("div.author a").first
-                    comment_author = ""
-                    if await author_dom.count() > 0:
-                        comment_author = (await author_dom.inner_text()).strip()
-
-                    # 评论内容
-                    content_dom = comment_dom.locator("div.content span.note-text span").first
-                    comment_content = ""
-                    if await content_dom.count() > 0:
-                        comment_content = (await content_dom.inner_text()).strip()
-
-                    # 点赞数量
-                    like_dom = comment_dom.locator("div.like span.count").first
-                    comment_like_count = ""
-                    if await like_dom.count() > 0:
-                        comment_like_count = (await like_dom.inner_text()).strip()
-
-                    # 回复数量
-                    reply_dom = comment_dom.locator("div.reply.icon-container span.count").first
-                    comment_reply_count = ""
-                    if await reply_dom.count() > 0:
-                        comment_reply_count = (await reply_dom.inner_text()).strip()
-                    
-                    comment_list.append({
-                        "comment_author": comment_author,
-                        "comment_content": comment_content,
-                        "comment_like_count": comment_like_count,
-                        "comment_reply_count": comment_reply_count
-                    })
+                comment_list = await _get_comment_list(page, note_id, max_comments=max_comments, max_idle_comment_rounds=max_idle_comment_rounds)
                 
                 # 获取数据
                 results.append({
@@ -364,7 +344,7 @@ async def _iter_notes(page, max_items=MAX_ITEMS, max_idle_rounds=MAX_IDLE_ROUNDS
                     "comment_list": comment_list
                     }
                 )
-                print(f"{results[-1]}")
+                print(f"第{len(results)}条笔记：{results[-1]}")
             except PlaywrightTimeoutError:
                 continue
             
@@ -381,6 +361,90 @@ async def _iter_notes(page, max_items=MAX_ITEMS, max_idle_rounds=MAX_IDLE_ROUNDS
 
         idle_rounds = idle_rounds + 1 if len(seen_ids) == before else 0
     return results
+
+async def _get_comment_list(page: Page, note_id: str, max_comments: int = MAX_COMMENTS, max_idle_comment_rounds=MAX_IDLE_COMMENT_ROUNDS)->list[dict]:
+    '''
+    获取评论列表
+    Args:
+        page: 页面对象
+        note_id: 笔记ID （暂没有使用这个参数，但需要保留）
+        max_comments: 最大爬取评论数量
+        max_idle_comment_rounds: 最大空闲评论轮次
+    Returns:
+        list[dict]: 评论列表
+            note_id: 笔记ID
+            index: 序号
+            comment_id: 评论ID
+            comment_author: 评论作者
+            comment_content: 评论内容
+            comment_like_count: 点赞数
+            comment_reply_count: 回复数
+    '''
+    comment_list = []
+    idle_comment_rounds = 0
+    seen_comment_ids = set()
+    i = 0
+    while len(comment_list) < max_comments and idle_comment_rounds < max_idle_comment_rounds:
+        comment_doms = page.locator("div.parent-comment")
+        comment_count = await comment_doms.count()
+        before_comment_count = len(comment_list)
+
+        while i < comment_count:
+            comment_dom = comment_doms.nth(i)   
+
+            comment_id = await comment_dom.locator("div.comment-item").first.get_attribute("id")
+            if comment_id == "" or comment_id in seen_comment_ids:
+                continue
+            
+            # 获取comment_id
+            seen_comment_ids.add(comment_id)
+
+            # 评论作者
+            author_dom = comment_dom.locator("div.author a").first
+            comment_author = ""
+            if await author_dom.count() > 0:
+                comment_author = (await author_dom.inner_text()).strip()
+
+            # 评论内容
+            content_dom = comment_dom.locator("div.content span.note-text span").first
+            comment_content = ""
+            if await content_dom.count() > 0:
+                comment_content = (await content_dom.inner_text()).strip()
+
+            # 点赞数量
+            like_dom = comment_dom.locator("div.like span.count").first
+            comment_like_count = ""
+            if await like_dom.count() > 0:
+                comment_like_count = (await like_dom.inner_text()).strip()
+
+            # 回复数量
+            reply_dom = comment_dom.locator("div.reply.icon-container span.count").first
+            comment_reply_count = ""
+            if await reply_dom.count() > 0:
+                comment_reply_count = (await reply_dom.inner_text()).strip()
+            
+            comment_list.append({
+                "note_id": note_id,
+                "index": len(comment_list)+1,
+                "comment_id": comment_id,
+                "comment_author": comment_author,
+                "comment_content": comment_content,
+                "comment_like_count": comment_like_count,
+                "comment_reply_count": comment_reply_count
+            })
+            print(f"第{len(comment_list)}条评论：{comment_list[-1]}")
+
+            if len(comment_list) >= max_comments:
+                break
+            
+            # 滚动加载更多
+            await comment_dom.scroll_into_view_if_needed()
+            await page.wait_for_timeout(1000)
+
+            i += 1
+
+        idle_comment_rounds = idle_comment_rounds + 1 if len(seen_comment_ids) == before_comment_count else 0
+    return comment_list
 
 async def _scrape(keyword: str, max_items: int, headless: bool):
     '''
