@@ -171,3 +171,40 @@ PWDEBUG=1 uv run python main.py --key_word 网球 --max_items 5
 - 命令行出现 `bash: [200~$: command not found`：通常是终端粘贴了控制字符，手动重敲命令即可
 - `--help` 没触发：确认文件已保存、参数里的 `-` 是英文半角减号
 
+## 8. LLM 集成与本地密钥配置
+
+项目已提供 `brain.py` 作为 LLM 调用入口，并使用 `.env` 存放敏感信息（不会提交到 git）。
+
+### `.env` 配置
+
+- 本地文件：`.env`
+- `.gitignore` 已包含 `*.env`，默认不会进 git
+
+示例配置（支持 OpenAI / Kimi）：
+
+```env
+OPENAI_API_KEY=sk-xxxx
+OPENAI_BASE_URL=https://api.openai.com/v1
+MODEL_NAME=gpt-4o
+
+KIMI_API_KEY=sk-xxxx
+KIMI_BASE_URL=https://api.moonshot.cn/v1
+KIMI_MODEL=kimi-k2.6
+
+LLM_TEMPERATURE=0.2
+LLM_MAX_TOKENS=1024
+SYSTEM_PROMPT=你是一个有帮助的助手。
+```
+
+### 运行方式
+
+```bash
+uv run python brain.py --prompt "请总结今天抓取到的内容"
+```
+
+可选：指定模型提供方（默认 `openai`）
+
+```bash
+uv run python brain.py --prompt "生成分析要点" --provider kimi
+```
+

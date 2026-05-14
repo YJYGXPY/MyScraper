@@ -7,7 +7,12 @@ wheels/
 *.egg-info
 state.json
 data/
+future/
 .vscode/
 
 # Virtual environments
 .venv
+
+# Local LLM secrets
+config/*.local.json
+*.env

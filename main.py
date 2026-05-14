@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import scrape
+import brain
 
 # 可修改配置
 KEYWORD = "羽毛球鞋" # 搜索关键词[***脚本参数***]
@@ -13,6 +14,10 @@ if __name__ == "__main__":
     parser.add_argument("--max_items", type=int, default=MAX_ITEMS, help="最大爬取数量（正整数，建议 <= 500）")
     parser.add_argument("--headless", type=bool, default=HEADLESS, help="是否无头模式，默认为否")
     args = parser.parse_args()
-    print(f"开始爬取关键词: {args.key_word}, 最大爬取数量: {args.max_items}")
+    
+    print(f">>>开始爬取关键词: {args.key_word}, 最大爬取数量: {args.max_items}")
 
-    asyncio.run(scrape.scrape_xhs(args.key_word, args.max_items, args.headless))
+    saved_path = asyncio.run(scrape.scrape_xhs(args.key_word, args.max_items, args.headless))
+    
+    print(f">>>开始分析数据: {saved_path}")
+    brain.analyze_data(saved_path)

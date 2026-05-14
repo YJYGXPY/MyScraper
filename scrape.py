@@ -7,8 +7,9 @@ import re
 from playwright.async_api import BrowserContext, Locator , async_playwright, Page, TimeoutError as PlaywrightTimeoutError
 
 # 可修改配置
-MAX_COMMENTS = 100 # 最大爬取评论数量
-MAX_REPLIES = 100 # 最大爬取回复数量
+MAX_COMMENTS = 10 # 最大爬取评论数量
+MAX_REPLIES = 10 # 最大爬取回复数量
+
 MAX_IDLE_ROUNDS = 3 # 最大空闲轮次
 MAX_IDLE_REPLY_ROUNDS = 3 # 最大空闲回复轮次
 MAX_IDLE_COMMENT_ROUNDS = 3 # 最大空闲评论轮次
@@ -179,7 +180,7 @@ def _save_items_to_jsonl(items: list[dict], keyword: str, max_items: int, data_p
 
     return filepath
 
-async def _search_keyword(page: Page, keyword: str, max_items: int, max_idle_rounds: int = MAX_IDLE_ROUNDS):
+async def _search_keyword(page: Page, keyword: str, max_items: int, max_idle_rounds: int = MAX_IDLE_ROUNDS) -> str:
     '''
     搜索关键词
     Args:
@@ -187,6 +188,8 @@ async def _search_keyword(page: Page, keyword: str, max_items: int, max_idle_rou
         keyword: 搜索关键词
         max_items: 最大爬取数量
         max_idle_rounds: 最大空闲轮次
+    Returns:
+        str: 保存的文件路径
     '''
     search_input = page.get_by_role("textbox", name="搜索小红书")
     await search_input.fill(keyword)
@@ -208,6 +211,7 @@ async def _search_keyword(page: Page, keyword: str, max_items: int, max_idle_rou
     # 保存数据
     saved_path = _save_items_to_jsonl(items, keyword, max_items)
     print(f"已保存 {len(items)} 条到: {saved_path}")
+    return saved_path
 
 async def _iter_notes(page, max_items, max_comments=MAX_COMMENTS, max_idle_rounds=MAX_IDLE_ROUNDS, max_idle_comment_rounds=MAX_IDLE_COMMENT_ROUNDS)->list[dict]:
     '''
@@ -545,13 +549,15 @@ async def _get_reply_list(page: Page, comment_dom: Locator, comment_id: str, max
         idle_reply_rounds = idle_reply_rounds + 1 if len(seen_reply_ids) == before_reply_count else 0
     return reply_list
 
-async def scrape_xhs(keyword: str, max_items: int, headless: bool):
+async def scrape_xhs(keyword: str, max_items: int, headless: bool) -> str:
     '''
     爬取数据（小红书）
     Args:
         keyword: 搜索关键词
         max_items: 最大爬取数量
         headless: 是否无头模式
+    Returns:
+        str: 保存文件的完整路径
     '''
     async with async_playwright() as p:
         browser = await p.chromium.launch(
@@ -568,4 +574,10 @@ async def scrape_xhs(keyword: str, max_items: int, headless: bool):
         if await _need_login(page):await _login_by_msg(page)
 
         # 搜索关键词
-        await _search_keyword(page, keyword=keyword, max_items=max_items, max_idle_rounds=MAX_IDLE_ROUNDS)
+        saved_path = await _search_keyword(
+            page,
+            keyword=keyword,
+            max_items=max_items,
+            max_idle_rounds=MAX_IDLE_ROUNDS,
+        )
+        return saved_path
