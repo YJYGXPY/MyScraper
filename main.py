@@ -4,13 +4,17 @@ from datetime import datetime
 import json
 import os
 import re
-from playwright.async_api import BrowserContext , async_playwright, Page, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import BrowserContext, Locator , async_playwright, Page, TimeoutError as PlaywrightTimeoutError
 
 # 可修改配置
-KEYWORD = "羽毛球鞋" # 搜索关键词
-MAX_ITEMS = 30 # 最大爬取数量
+KEYWORD = "羽毛球鞋" # 搜索关键词[***脚本参数***]
+MAX_ITEMS = 30 # 最大爬取数量[***脚本参数***]
+HEADLESS = False # 是否无头模式[***脚本参数***]
+
 MAX_COMMENTS = 100 # 最大爬取评论数量
+MAX_REPLIES = 100 # 最大爬取回复数量
 MAX_IDLE_ROUNDS = 3 # 最大空闲轮次
+MAX_IDLE_REPLY_ROUNDS = 3 # 最大空闲回复轮次
 MAX_IDLE_COMMENT_ROUNDS = 3 # 最大空闲评论轮次
 
 # 常量
@@ -239,6 +243,7 @@ async def _iter_notes(page, max_items=MAX_ITEMS, max_comments=MAX_COMMENTS, max_
                 comment_like_count: 点赞数
                 comment_reply_count: 回复数
     '''
+    print(f"开始爬取笔记...(最大爬取数量: {max_items})\n")
     await page.wait_for_selector(".feeds-container section.note-item")
     
     seen_ids = set()
@@ -393,6 +398,7 @@ async def _get_comment_list(page: Page, note_id: str, max_comments: int = MAX_CO
 
         while i < comment_count:
             comment_dom = comment_doms.nth(i)   
+            i += 1 # 更新index
 
             comment_id = await comment_dom.locator("div.comment-item").first.get_attribute("id")
             if comment_id == "" or comment_id in seen_comment_ids:
@@ -425,6 +431,9 @@ async def _get_comment_list(page: Page, note_id: str, max_comments: int = MAX_CO
             if await reply_dom.count() > 0:
                 comment_reply_count = (await reply_dom.inner_text()).strip()
             
+            # 回复列表
+            reply_list = await _get_reply_list(page, comment_dom, comment_id, max_replies=MAX_REPLIES)
+            
             comment_list.append({
                 "note_id": note_id,
                 "index": len(comment_list)+1,
@@ -432,7 +441,8 @@ async def _get_comment_list(page: Page, note_id: str, max_comments: int = MAX_CO
                 "comment_author": comment_author,
                 "comment_content": comment_content,
                 "comment_like_count": comment_like_count,
-                "comment_reply_count": comment_reply_count
+                "comment_reply_count": comment_reply_count,
+                "reply_list": reply_list
             })
             print(f"第{len(comment_list)}条评论：{comment_list[-1]}")
 
@@ -443,10 +453,94 @@ async def _get_comment_list(page: Page, note_id: str, max_comments: int = MAX_CO
             await comment_dom.scroll_into_view_if_needed()
             await page.wait_for_timeout(1000)
 
-            i += 1
-
         idle_comment_rounds = idle_comment_rounds + 1 if len(seen_comment_ids) == before_comment_count else 0
     return comment_list
+
+async def _get_reply_list(page: Page, comment_dom: Locator, comment_id: str, max_replies: int = MAX_REPLIES, max_idle_reply_rounds=MAX_IDLE_REPLY_ROUNDS)->list[dict]:
+    '''
+    获取回复列表
+    Args:
+        page: 页面对象
+        comment_dom: 评论DOM
+        comment_id: 评论ID
+        max_replies: 最大爬取回复数量
+        max_idle_reply_rounds: 最大空闲回复轮次
+    Returns:
+        list[dict]: 回复列表
+            comment_id: 评论ID
+            index: 序号
+            reply_id: 回复ID
+            reply_author: 回复作者
+            reply_content: 回复内容
+            reply_like_count: 点赞数
+    '''
+    reply_container = comment_dom.locator("div.reply-container")
+    if await reply_container.count() == 0:
+        return []
+    
+    idle_reply_rounds = 0
+    reply_list = []
+    seen_reply_ids = set()  
+    i = 0
+    while len(reply_list) < max_replies and idle_reply_rounds < max_idle_reply_rounds:
+        reply_doms = comment_dom.locator("div.comment-item.comment-item-sub")
+        reply_count = await reply_doms.count()
+        before_reply_count = len(reply_list)
+
+        while i < reply_count:
+            reply_dom = reply_doms.nth(i)
+            i += 1 # 更新index
+
+            reply_id = await reply_dom.get_attribute("id")
+            if reply_id == "" or reply_id in seen_reply_ids:
+                continue
+            seen_reply_ids.add(reply_id)
+
+            # 获取回复内容
+            # 获取回复作者
+            author_dom = reply_dom.locator("div.author a").first
+            reply_author = ""
+            if await author_dom.count() > 0:
+                reply_author = (await author_dom.inner_text()).strip()
+
+            # 获取回复内容
+            content_dom = reply_dom.locator("div.content span.note-text span").first
+            reply_content = ""
+            if await content_dom.count() > 0:
+                reply_content = (await content_dom.inner_text()).strip()
+            
+            # 点赞数量
+            like_dom = reply_dom.locator("div.like span.count").first
+            reply_like_count = ""
+            if await like_dom.count() > 0:
+                reply_like_count = (await like_dom.inner_text()).strip()
+
+            reply_list.append({
+                "comment_id": comment_id,
+                "index": len(reply_list)+1,
+                "reply_id": reply_id,
+                "reply_author": reply_author,
+                "reply_content": reply_content,
+                "reply_like_count": reply_like_count
+            })
+            print(f"第{len(reply_list)}条回复：{reply_list[-1]}")
+
+            if len(reply_list) >= max_replies:
+                break
+
+            await reply_dom.scroll_into_view_if_needed()
+            await page.wait_for_timeout(1000)
+
+        # 点击加载更多
+        show_more_dom = reply_container.locator("div.show-more")
+        if await show_more_dom.count() > 0:
+            await show_more_dom.scroll_into_view_if_needed()
+            await page.wait_for_timeout(500)
+            await show_more_dom.click()
+            await page.wait_for_timeout(1000)
+
+        idle_reply_rounds = idle_reply_rounds + 1 if len(seen_reply_ids) == before_reply_count else 0
+    return reply_list
 
 async def _scrape(keyword: str, max_items: int, headless: bool):
     '''
@@ -477,7 +571,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="小红书爬虫")
     parser.add_argument("--key_word", type=str, default=KEYWORD, help="搜索关键词（不能为空）")
     parser.add_argument("--max_items", type=int, default=MAX_ITEMS, help="最大爬取数量（正整数，建议 <= 500）")
-    parser.add_argument("--headless", type=bool, default=False, help="是否无头模式，默认为否")
+    parser.add_argument("--headless", type=bool, default=HEADLESS, help="是否无头模式，默认为否")
     args = parser.parse_args()
     print(f"开始爬取关键词: {args.key_word}, 最大爬取数量: {args.max_items}")
 
