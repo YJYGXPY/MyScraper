@@ -6,16 +6,18 @@ import os
 import re
 from playwright.async_api import BrowserContext , async_playwright, Page, TimeoutError as PlaywrightTimeoutError
 
-# 配置
-STATE_PATH = "state.json" # 登录态保存路径
-DATA_PATH = "data/" # 数据保存路径
-URL = "https://www.xiaohongshu.com/explore" # 首页URL
+# 可修改配置
 KEYWORD = "羽毛球鞋" # 搜索关键词
 MAX_ITEMS = 30 # 最大爬取数量
 MAX_COMMENTS = 100 # 最大爬取评论数量
 MAX_IDLE_ROUNDS = 3 # 最大空闲轮次
 MAX_IDLE_COMMENT_ROUNDS = 3 # 最大空闲评论轮次
-TIME_FILTER = ["一天内", "一周内", "半年内", "不限"] # 发布时间筛选
+
+# 常量
+STATE_PATH = "state.json" # 登录态保存路径
+DATA_PATH = "data/" # 数据保存路径
+URL = "https://www.xiaohongshu.com/explore" # 首页URL
+TIME_FILTER = ["一天内", "一周内", "半年内", "不限"] # 发布时间筛选（暂未使用）
 
 async def _need_login(page: Page) -> bool:
     '''
