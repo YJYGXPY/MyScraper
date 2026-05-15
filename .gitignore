@@ -16,3 +16,4 @@ future/
 # Local LLM secrets
 config/*.local.json
 *.env
+.claude

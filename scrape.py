@@ -261,124 +261,123 @@ async def _iter_notes(page, max_items, max_comments=MAX_COMMENTS, max_idle_round
     seen_ids = set()
     results = []
     idle_rounds = 0
-    while len(results) < max_items and idle_rounds < max_idle_rounds:
-        before = len(seen_ids)
-        cards = page.locator(".feeds-container section.note-item")
-        total_count = await cards.count()
-        
-        for i in range(total_count):
-            card = cards.nth(i)
+    index = -1
+    while len(results) < max_items:
+        index = index + 1
+        #爬取笔记信息
+        card = page.locator(f"//div[@class='feeds-container']/section[@class='note-item' and @data-index='{index}']")
 
-            # 只处理当前视口内的新卡片：优先用 href
-            note_id = await card.evaluate(
-                """(el) => {
-                    const anchor = el.querySelector("a[href^='/explore/']");
-                    if (anchor) {
-                        return anchor.getAttribute("href");
-                    }
-                    return "";
-                }"""
-            )
-            if note_id == "" or note_id in seen_ids:
-                continue
-            
-            # 获取note_id
-            seen_ids.add(note_id)
+        # 只处理当前视口内的新卡片：优先用 href
+        note_id = await card.evaluate(
+            """(el) => {
+                const anchor = el.querySelector("a[href^='/explore/']");
+                if (anchor) {
+                    return anchor.getAttribute("href");
+                }
+                return "";
+            }"""
+        )
+        if note_id == "" or note_id in seen_ids:
+            continue
 
-            # 获取详情的数据
-            await card.click()
-            try:
-                close_button = page.locator(".close").first
-                await close_button.wait_for(state="visible", timeout=2500)
-            except PlaywrightTimeoutError:
-                continue
-            try:
-                # 获取标题
-                title_dom = page.locator("#detail-title")
-                title = ""
-                if await title_dom.count() > 0:
-                    title = (await title_dom.inner_text()).strip() 
+        # 获取note_id
+        seen_ids.add(note_id)
+
+        # 获取详情的数据
+        await card.click()
+        try:
+            close_button = page.locator(".close").first
+            await close_button.wait_for(state="visible", timeout=2500)
+        except PlaywrightTimeoutError:
+            continue
+        try:
+            # 获取标题
+            title_dom = page.locator("#detail-title")
+            title = ""
+            if await title_dom.count() > 0:
+                title = (await title_dom.inner_text()).strip()
 
                 # 作者
-                author_dom = page.locator("div.author-container span.username")
-                author = (await author_dom.inner_text()).strip() if await author_dom.count() > 0 else ""
-                    
-                # 笔记内容
-                content_container = page.locator("#detail-desc span.note-text")
-                description_dom_list = content_container.locator(":scope > span")
-                description_dom_count = await description_dom_list.count()
-                description = ""
-                for i in range(description_dom_count):
-                    description_dom = description_dom_list.nth(i)
-                    description += (await description_dom.inner_text()).strip() + " "
-                description = description.strip() if description else ""  
+            author_dom = page.locator("div.author-container span.username")
+            author = (await author_dom.inner_text()).strip() if await author_dom.count() > 0 else ""
 
-                # 笔记tag
-                tag_doms = page.locator("#detail-desc").locator("a.tag")
-                tag_count = await tag_doms.count()
-                tag_description = ""
-                for i in range(tag_count):
-                    tag_dom = tag_doms.nth(i)
-                    tag_name = (await tag_dom.inner_text()).strip()
-                    tag_description += tag_name + " "
-                tag_description = tag_description.strip() if tag_description else ""
+            # 笔记内容
+            content_container = page.locator("#detail-desc span.note-text")
+            description_dom_list = content_container.locator(":scope > span")
+            description_dom_count = await description_dom_list.count()
+            description = ""
+            for i in range(description_dom_count):
+                description_dom = description_dom_list.nth(i)
+                description += (await description_dom.inner_text()).strip() + " "
+            description = description.strip() if description else ""
 
-                # 时间地点
-                time_location_dom = page.locator("div.bottom-container span.date")
-                time_location = (await time_location_dom.inner_text()).strip() if await time_location_dom.count() > 0 else ""
+            # 笔记tag
+            tag_doms = page.locator("#detail-desc").locator("a.tag")
+            tag_count = await tag_doms.count()
+            tag_description = ""
+            for i in range(tag_count):
+                tag_dom = tag_doms.nth(i)
+                tag_name = (await tag_dom.inner_text()).strip()
+                tag_description += tag_name + " "
+            tag_description = tag_description.strip() if tag_description else ""
 
-                # 点赞数
-                like_dom = page.locator("div.buttons.engage-bar-style span.like-wrapper.like-active span.count").first
-                comment_like_count = ""
-                if await like_dom.count() > 0:
-                    comment_like_count = (await like_dom.inner_text()).strip()
+            # 时间地点
+            time_location_dom = page.locator("div.bottom-container span.date")
+            time_location = (
+                await time_location_dom.inner_text()).strip() if await time_location_dom.count() > 0 else ""
 
-                # 收藏数
-                collect_dom = page.locator("div.buttons.engage-bar-style span.collect-wrapper span.count").first
-                collect_count = ""
-                if await collect_dom.count() > 0:
-                    collect_count = (await collect_dom.inner_text()).strip()
+            # 点赞数
+            like_dom = page.locator("div.buttons.engage-bar-style span.like-wrapper.like-active span.count").first
+            comment_like_count = ""
+            if await like_dom.count() > 0:
+                comment_like_count = (await like_dom.inner_text()).strip()
 
-                # 评论数
-                comment_dom = page.locator("div.buttons.engage-bar-style span.chat-wrapper span.count").first
-                comment_count = ""
-                if await comment_dom.count() > 0:
-                    comment_count = (await comment_dom.inner_text()).strip()
+            # 收藏数
+            collect_dom = page.locator("div.buttons.engage-bar-style span.collect-wrapper span.count").first
+            collect_count = ""
+            if await collect_dom.count() > 0:
+                collect_count = (await collect_dom.inner_text()).strip()
 
-                # 评论
-                comment_list = await _get_comment_list(page, note_id, max_comments=max_comments, max_idle_comment_rounds=max_idle_comment_rounds)
-                
-                # 获取数据
-                results.append({
-                    "index": len(results) + 1,
-                    "id": note_id, 
-                    "title": title,
-                    "author": author,
-                    "description": description,
-                    "tag_description": tag_description,
-                    "time_location": time_location,
-                    "like_count": comment_like_count,
-                    "collect_count": collect_count,
-                    "comment_count": comment_count,
-                    "comment_list": comment_list
-                    }
-                )
-                print(f"第{len(results)}条笔记：{results[-1]}")
-            except PlaywrightTimeoutError:
-                continue
-            
-            # 关闭详情
-            if await close_button.is_visible():
-                await page.keyboard.press("Escape")
-                await page.wait_for_timeout(500)
-            
-            if len(results) >= max_items:
-                break
+            # 评论数
+            comment_dom = page.locator("div.buttons.engage-bar-style span.chat-wrapper span.count").first
+            comment_count = ""
+            if await comment_dom.count() > 0:
+                comment_count = (await comment_dom.inner_text()).strip()
 
-            await card.scroll_into_view_if_needed()
+            # 评论
+            comment_list = await _get_comment_list(page, note_id, max_comments=max_comments,
+                                                   max_idle_comment_rounds=max_idle_comment_rounds)
+
+            # 获取数据
+            results.append({
+                "index": len(results) + 1,
+                "id": note_id,
+                "title": title,
+                "author": author,
+                "description": description,
+                "tag_description": tag_description,
+                "time_location": time_location,
+                "like_count": comment_like_count,
+                "collect_count": collect_count,
+                "comment_count": comment_count,
+                "comment_list": comment_list
+            }
+            )
+            print(f"第{len(results)}条笔记：{results[-1]}")
+        except PlaywrightTimeoutError:
+            continue
+
+        # 关闭详情
+        if await close_button.is_visible():
+            await page.keyboard.press("Escape")
             await page.wait_for_timeout(500)
 
-        idle_rounds = idle_rounds + 1 if len(seen_ids) == before else 0
+        if len(results) >= max_items:
+            break
+
+        await card.scroll_into_view_if_needed()
+        await page.wait_for_timeout(500)
+
     return results
 
 async def _get_comment_list(page: Page, note_id: str, max_comments: int = MAX_COMMENTS, max_idle_comment_rounds=MAX_IDLE_COMMENT_ROUNDS)->list[dict]:

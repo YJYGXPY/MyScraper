@@ -182,6 +182,33 @@ def _render_markdown(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def generate_keywords(keyword: str, provider: str = "ark") -> list[str]:
+    '''
+    根据输入关键词，调用大模型派生商机相关关键词
+    Args:
+        keyword: 原始关键词
+        provider: LLM 提供商
+    Returns:
+        list[str]: 派生关键词列表（最多5个，不含原始关键词）
+    '''
+    prompt = f"""
+你是商业机会挖掘专家。请根据用户给出的关键词，派生出最多5个相关的商机关键词。
+
+规则：
+1) 派生关键词应围绕"挖掘商机"目标，聚焦用户购买意愿、消费场景、痛点需求等方向。
+2) 不要返回原始关键词本身。
+3) 只输出一个 JSON 对象，不要输出 Markdown，不要代码块，不要解释文字。
+4) 输出必须可被 json.loads 解析。
+5) 格式如下：{{"keywords": ["关键词1", "关键词2", ...]}}
+
+【原始关键词】
+{keyword}
+""".strip()
+
+    result = _call_llm_json(prompt, provider=provider)
+    return result.get("keywords", [])
+
+
 def analyze_data(data_path: str, provider: str = "ark") -> str:
     project_root = Path(__file__).resolve().parent
     readme_path = project_root / "README.md"
