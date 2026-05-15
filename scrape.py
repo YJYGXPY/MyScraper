@@ -5,7 +5,7 @@ import json
 import os
 import re
 from playwright.async_api import BrowserContext, Locator, async_playwright, Page, \
-    TimeoutError as PlaywrightTimeoutError, Browser
+    TimeoutError as PlaywrightTimeoutError, Browser, ViewportSize
 
 # 可修改配置
 MAX_COMMENTS = 10 # 最大爬取评论数量
@@ -66,7 +66,7 @@ async def _load_login_info(state_path: str, browser: Browser)-> BrowserContext:
         Context: 上下文对象
     '''
     if os.path.exists(state_path):
-        context = await browser.new_context(storage_state=state_path, viewport={"width": 1920, "height": 1080})
+        context = await browser.new_context(storage_state=state_path, viewport=ViewportSize(width=1920, height=1080))
         print("已加载本地登录态")
     else:
         context = await browser.new_context()
