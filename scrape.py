@@ -4,7 +4,8 @@ from datetime import datetime
 import json
 import os
 import re
-from playwright.async_api import BrowserContext, Locator , async_playwright, Page, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import BrowserContext, Locator, async_playwright, Page, \
+    TimeoutError as PlaywrightTimeoutError, Browser
 
 # 可修改配置
 MAX_COMMENTS = 10 # 最大爬取评论数量
@@ -55,7 +56,7 @@ async def _save_login_info(state_path: str, page: Page):
     await page.context.storage_state(path=state_path)
     print(f"登录态已保存到 {state_path}")
 
-async def _load_login_info(state_path: str, browser: BrowserContext)-> BrowserContext:
+async def _load_login_info(state_path: str, browser: Browser)-> BrowserContext:
     '''
     加载登录信息
     Args:
@@ -65,11 +66,14 @@ async def _load_login_info(state_path: str, browser: BrowserContext)-> BrowserCo
         Context: 上下文对象
     '''
     if os.path.exists(state_path):
-        context = await browser.new_context(storage_state=state_path)
+        context = await browser.new_context(storage_state=state_path, viewport={"width": 1920, "height": 1080})
         print("已加载本地登录态")
     else:
         context = await browser.new_context()
         print("未加载本地登录态")
+
+    await context.add_init_script(path="stealth_min.js")
+
     return context
 
 async def _wait_login_success(page: Page, timeout_ms: int = 20000) -> bool:
@@ -564,7 +568,7 @@ async def scrape_xhs(keyword: str, max_items: int, headless: bool) -> str:
             channel="chrome",
             headless=headless, 
             slow_mo=50,
-            args=["--auto-open-devtools-for-tabs"]
+            # args=["--auto-open-devtools-for-tabs"]
         )
 
         context = await _load_login_info(STATE_PATH, browser)
