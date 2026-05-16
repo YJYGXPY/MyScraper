@@ -9,6 +9,8 @@ state.json
 data/
 future/
 .vscode/
+docs/
+tests/
 
 # Virtual environments
 .venv

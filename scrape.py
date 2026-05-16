@@ -30,6 +30,7 @@ async def _need_login(page: Page) -> bool:
         bool: 是否需要登录
     '''
     await page.wait_for_load_state("domcontentloaded")
+    await page.wait_for_timeout(3000)
 
     # 只要看到任一登录相关元素，就认为需要登录
     login_signals = [
@@ -40,7 +41,7 @@ async def _need_login(page: Page) -> bool:
 
     for loc in login_signals:
         try:
-            if await loc.first.is_visible(timeout=1500):
+            if await loc.first.is_visible(timeout=5000):
                 return True
         except Exception:
             pass
@@ -148,6 +149,34 @@ async def _login_by_msg(page: Page):
     # Step7: 保存登录信息
     print(">>>登录成功")
     await _save_login_info(STATE_PATH,page)
+
+async def ensure_login_ready(headless: bool) -> None:
+    '''
+    在并发抓取前统一确保登录状态可用
+    Args:
+        headless: 是否无头模式
+    '''
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            channel="chrome",
+            headless=headless,
+            slow_mo=50,
+            # args=["--auto-open-devtools-for-tabs"]
+        )
+        try:
+            context = await _load_login_info(STATE_PATH, browser)
+            page = await context.new_page()
+            await page.goto(URL)
+
+            if await _need_login(page):
+                print("登录态失效，开始统一登录")
+                await _login_by_msg(page)
+                print("统一登录成功，已保存登录态")
+            else:
+                print("登录态有效，无需重新登录")
+        finally:
+            # await browser.close()
+            pass
 
 def _safe_filename(text: str) -> str:
     '''
@@ -575,7 +604,10 @@ async def scrape_xhs(keyword: str, max_items: int, headless: bool) -> str:
         page = await context.new_page()
         await page.goto(URL)
 
-        if await _need_login(page):await _login_by_msg(page)
+        if await _need_login(page):
+            raise RuntimeError(
+                "检测到未登录状态。请先在并发抓取前调用 ensure_login_ready(headless=False) 完成统一登录预检。"
+            )
 
         # 搜索关键词
         saved_path = await _search_keyword(

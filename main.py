@@ -8,7 +8,7 @@ import brain
 
 # 可修改配置
 KEYWORD = "羽毛球鞋" # 搜索关键词[***脚本参数***]
-MAX_ITEMS = 1 # 最大爬取数量[***内部配置***]
+MAX_ITEMS = 10 # 最大爬取数量[***内部配置***]
 HEADLESS = False # 是否无头模式[***内部配置***]
 MAX_CONCURRENCY = 5 # 并行抓取关键词数量上限[***内部配置***]
 
@@ -80,18 +80,26 @@ async def _scrape_keywords_parallel(
     return [p for p in success_paths if p], failed_keywords
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="小红书爬虫")
-    parser.add_argument("key_word", type=str, nargs="?", default=KEYWORD, help="你想探索的方向（关键词）")
-    args = parser.parse_args()
-
+def run_pipeline(keyword: str) -> str:
+    '''
+    执行完整抓取与分析流程
+    Args:
+        keyword: 原始关键词
+    Returns:
+        str: 合并后的数据路径
+    '''
     # 1. 派生关键词
-    print(f">>>原始关键词: {args.key_word}")
-    derived = brain.generate_keywords(args.key_word)
+    print(f">>>原始关键词: {keyword}")
+    derived = brain.generate_keywords(keyword)
     all_keywords = derived
     print(f">>>全部关键词: {all_keywords}")
 
-    # 2. 并行抓取每个关键词（带并发上限）
+    # 2. 并发前统一登录预检
+    print(f">>>开始登录预检")
+    asyncio.run(scrape.ensure_login_ready(headless=HEADLESS))
+    print(f">>>登录预检完成")
+
+    # 3. 并行抓取每个关键词（带并发上限）
     saved_paths, failed_keywords = asyncio.run(
         _scrape_keywords_parallel(
             all_keywords,
@@ -105,13 +113,21 @@ if __name__ == "__main__":
     if not saved_paths:
         raise RuntimeError("所有关键词抓取均失败，无法进入合并与分析阶段。")
 
-    # 3. 合并数据
+    # 4. 合并数据
     if len(saved_paths) > 1:
-        merged_path = _merge_jsonl(saved_paths, args.key_word, MAX_ITEMS)
+        merged_path = _merge_jsonl(saved_paths, keyword, MAX_ITEMS)
         print(f">>>已合并 {len(saved_paths)} 个文件到: {merged_path}")
     else:
         merged_path = saved_paths[0]
 
-    # 4. 统一分析
+    # 5. 统一分析
     print(f">>>开始分析数据: {merged_path}")
     brain.analyze_data(merged_path)
+    return merged_path
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="小红书爬虫")
+    parser.add_argument("key_word", type=str, nargs="?", default=KEYWORD, help="你想探索的方向（关键词）")
+    args = parser.parse_args()
+    run_pipeline(args.key_word)
