@@ -9,3 +9,8 @@ dependencies = [
     "playwright>=1.59.0",
     "python-dotenv>=1.2.2",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]

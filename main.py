@@ -11,6 +11,7 @@ KEYWORD = "羽毛球鞋" # 搜索关键词[***脚本参数***]
 MAX_ITEMS = 30 # 最大爬取数量[***内部配置***]
 HEADLESS = False # 是否无头模式[***内部配置***]
 MAX_CONCURRENCY = 5 # 并行抓取关键词数量上限[***内部配置***]
+MAX_PROMPT_TOKENS = 250000 # 大模型输入预算上限[***内部配置***]
 
 # 常量
 DATA_PATH = "data/" # 数据保存路径
@@ -113,17 +114,19 @@ def run_pipeline(keyword: str) -> str:
     if not saved_paths:
         raise RuntimeError("所有关键词抓取均失败，无法进入合并与分析阶段。")
 
-    # 4. 合并数据
-    if len(saved_paths) > 1:
-        merged_path = _merge_jsonl(saved_paths, keyword, MAX_ITEMS)
-        print(f">>>已合并 {len(saved_paths)} 个文件到: {merged_path}")
-    else:
-        merged_path = saved_paths[0]
+    active_keywords = [kw for kw in all_keywords if kw not in failed_keywords][:len(saved_paths)]
+    if len(active_keywords) != len(saved_paths):
+        raise RuntimeError("成功抓取文件与关键词无法正确对齐，无法进入分析阶段。")
 
-    # 5. 统一分析
-    print(f">>>开始分析数据: {merged_path}")
-    brain.analyze_data(merged_path)
-    return merged_path
+    # 4. 抓取完成后统一分析（关键词内分批 -> 跨关键词全局归并）
+    report_json = brain.analyze_data_multi_stage(
+        keyword_paths=saved_paths,
+        keywords=active_keywords,
+        max_prompt_tokens=MAX_PROMPT_TOKENS,
+    )
+    report_path = brain.save_global_report(report_json, stem=keyword)
+    print(f">>>全局分析完成，报告输出: {report_path}")
+    return report_path
 
 
 if __name__ == "__main__":

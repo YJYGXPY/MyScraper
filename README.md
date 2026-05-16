@@ -3,9 +3,9 @@
 基于 Playwright 的小红书关键词爬虫，支持自动抓取笔记、评论与回复，并在抓取完成后自动调用大模型生成分析报告。
 
 当前流程：
-- `main.py`：执行爬取 + 调用 `brain.analyze_data(...)` 分析
+- `main.py`：执行爬取 + 调用 `brain.analyze_data_multi_stage(...)` 分析
 - `scrape.py`：负责登录、搜索、抓取、落盘 `jsonl`
-- `brain.py`：读取 `jsonl` 全量数据，要求 LLM 严格输出 JSON，再渲染为 Markdown
+- `brain.py`：对每个关键词数据分批分析并归并，再做跨关键词全局归并并渲染为 Markdown
 
 ## 1. 环境准备
 
@@ -33,7 +33,7 @@ LLM_MODEL=your_model_name
 
 ## 3. 运行方式（推荐）
 
-默认执行完整流程：先派生关键词，再做统一登录预检，再并行爬取，最后合并并分析。
+默认执行完整流程：先派生关键词，再做统一登录预检，再并行爬取，最后统一分析。
 
 使用位置参数传入“探索方向”：
 
@@ -61,9 +61,10 @@ CLI 当前只保留一个参数：
 
 其余运行配置为脚本内部常量（`main.py`）：
 
-- `MAX_ITEMS`：每个关键词最大爬取数量（默认 `1`）
+- `MAX_ITEMS`：每个关键词最大爬取数量（默认 `30`）
 - `HEADLESS`：是否无头模式（默认 `False`）
 - `MAX_CONCURRENCY`：并行抓取关键词上限（默认 `5`）
+- `MAX_PROMPT_TOKENS`：单次提示词输入预算上限（默认 `250000`）
 
 ## 5. 输出目录与文件
 
@@ -83,12 +84,6 @@ xhs_{时间戳}_{关键词}_{max_items}.jsonl
 xhs_20260512_200406_网球_15.jsonl
 ```
 
-如果派生出多个关键词，`main.py` 会在爬取后自动合并为一个文件：
-
-```text
-xhs_{时间戳}_{原始关键词}_{max_items}_merged.jsonl
-```
-
 ### 5.2 检查点（`data/checkpoints/`）
 
 为支持中断恢复，抓取过程会持续写入检查点：
@@ -103,10 +98,10 @@ xhs_{时间戳}_{原始关键词}_{max_items}_merged.jsonl
 检查点中包含运行状态、已抓取进度、失败重试队列等信息。
 ### 5.3 分析结果（`future/`）
 
-`main.py` 在爬取完成后会自动调用 `brain.analyze_data(saved_path)`，并将分析结果写入 `future/`：
+`main.py` 在爬取完成后会自动调用 `brain.analyze_data_multi_stage(...)`，并将单份全局分析结果写入 `future/`：
 
-- 原始结构化结果：`analysis_{data_stem}_{时间戳}.raw.json`
-- 可读报告：`analysis_{data_stem}_{时间戳}.md`
+- 原始结构化结果：`analysis_{stem}_{时间戳}.raw.json`
+- 可读报告：`analysis_{stem}_{时间戳}.md`
 
 ## 6. 数据格式（JSONL）
 
@@ -191,18 +186,18 @@ xhs_{时间戳}_{原始关键词}_{max_items}_merged.jsonl
 
 ## 7. AI 分析机制（`brain.py`）
 
-`brain.analyze_data(data_path)` 的行为：
+`brain.analyze_data_multi_stage(keyword_paths, keywords, max_prompt_tokens)` 的行为：
 
-1. 读取 `data_path` 指向的 `jsonl`（全量记录）
+1. 读取每个关键词对应的 `jsonl`
 2. 读取 `README.md` 作为规则上下文
-3. 构造提示词，要求模型只输出合法 JSON（固定 schema）
-4. 校验 JSON 解析失败时自动重试
+3. 按 `max_prompt_tokens` 做关键词内分批分析
+4. 对每个关键词分批结果先归并，再跨关键词全局归并
 5. 结果补充 `meta` 后保存为：
    - `future/*.raw.json`
    - `future/*.md`
 
 提示：
-- 由于当前传入的是全量记录，数据很大时可能触发模型上下文限制
+- 通过分批策略可降低超长输入导致的空输出风险
 
 ## 8. 登录说明
 
@@ -232,15 +227,20 @@ PWDEBUG=1 uv run python main.py 网球
 - 参数无效：先用 `-h` 检查参数说明（当前仅支持位置参数 `key_word`）
 - 终端出现 `bash: [200~$: command not found`：通常是粘贴了控制字符，手动重敲命令
 - LLM 报配置缺失：检查 `.env` 是否包含 `LLM_API_KEY / LLM_BASE_URL / LLM_MODEL`
-- 输出为空或 JSON 解析失败：检查模型是否遵守“仅输出 JSON”约束，必要时更换模型或缩小输入规模
+- 输出为空或 JSON 解析失败：检查模型是否遵守“仅输出 JSON”约束，必要时更换模型，或下调 `MAX_PROMPT_TOKENS`
 
 ## 12. 独立调用分析（可选）
 
-如果只想对已存在的 `jsonl` 文件做分析，可在 Python 中直接调用：
+如果你已经有多个关键词对应的 `jsonl` 文件，可在 Python 中直接调用：
 
 ```python
 import brain
-result_path = brain.analyze_data("data/your_file.jsonl")
+report = brain.analyze_data_multi_stage(
+    keyword_paths=["data/k1.jsonl", "data/k2.jsonl"],
+    keywords=["关键词1", "关键词2"],
+    max_prompt_tokens=110000,
+)
+result_path = brain.save_global_report(report, stem="custom")
 print(result_path)
 ```
 

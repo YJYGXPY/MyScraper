@@ -1,4 +1,3 @@
-import argparse
 import json
 import os
 from datetime import datetime
@@ -141,12 +140,22 @@ def _call_llm_json(prompt: str, max_retry: int = 2) -> dict[str, Any]:
 
 def _render_markdown(report: dict[str, Any]) -> str:
     lines: list[str] = []
-    meta = report["meta"]
+    meta = report.get("meta", {})
     lines.append("# 数据分析报告")
     lines.append("")
-    lines.append(f"- 来源文件: `{meta['source_file']}`")
-    lines.append(f"- 记录数: `{meta['record_count']}`")
-    lines.append(f"- 生成时间: `{meta['generated_at']}`")
+    lines.append(f"- 来源文件: `{meta.get('source_file', 'N/A')}`")
+    lines.append(f"- 记录数: `{meta.get('record_count', 0)}`")
+    lines.append(f"- 生成时间: `{meta.get('generated_at', '')}`")
+    if "keyword_count" in meta:
+        lines.append(f"- 关键词数: `{meta.get('keyword_count', 0)}`")
+    if "keyword_coverages" in meta:
+        lines.append("")
+        lines.append("## 关键词覆盖率")
+        for cov in meta.get("keyword_coverages", []):
+            lines.append(
+                f"- `{cov.get('keyword', '')}`: total={cov.get('total_batches', 0)}, "
+                f"success={cov.get('success_batches', 0)}, failed={cov.get('failed_batches', 0)}"
+            )
     lines.append("")
 
     lines.append("## 已付费/强付费意愿点")
@@ -174,6 +183,168 @@ def _render_markdown(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _estimate_tokens(obj: Any) -> int:
+    text = json.dumps(obj, ensure_ascii=False)
+    return max(1, len(text) // 4)
+
+
+def _split_items_by_budget(
+    items: list[dict[str, Any]],
+    max_prompt_tokens: int,
+    fixed_overhead_tokens: int = 10000,
+) -> list[list[dict[str, Any]]]:
+    budget = max(1, max_prompt_tokens - fixed_overhead_tokens)
+    batches: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    used_tokens = 0
+
+    for item in items:
+        item_tokens = _estimate_tokens(item)
+        if current and used_tokens + item_tokens > budget:
+            batches.append(current)
+            current = []
+            used_tokens = 0
+        current.append(item)
+        used_tokens += item_tokens
+
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _merge_partial_reports(partials: list[dict[str, Any]]) -> dict[str, Any]:
+    merged: dict[str, dict[str, Any]] = {}
+    for part in partials:
+        for signal in part.get("signals", []):
+            key = signal.get("title", "").strip() or signal.get("id", "")
+            if not key:
+                continue
+            if key not in merged:
+                merged[key] = {
+                    "id": signal.get("id", "S1"),
+                    "title": signal.get("title", ""),
+                    "strength": signal.get("strength", "medium"),
+                    "summary": signal.get("summary", ""),
+                    "evidence": [],
+                    "suggestions": [],
+                }
+            for evidence in signal.get("evidence", []):
+                if evidence not in merged[key]["evidence"]:
+                    merged[key]["evidence"].append(evidence)
+            for suggestion in signal.get("suggestions", []):
+                if suggestion not in merged[key]["suggestions"]:
+                    merged[key]["suggestions"].append(suggestion)
+
+    return {
+        "signals": list(merged.values()),
+        "overall_strategy": {
+            "positioning": "",
+            "first_offer": "",
+            "conversion_path": [],
+        },
+    }
+
+
+def _analyze_keyword_batches(
+    keyword: str,
+    data_path: str,
+    items: list[dict[str, Any]],
+    readme_text: str,
+    max_prompt_tokens: int,
+    fixed_overhead_tokens: int = 10000,
+) -> dict[str, Any]:
+    batches = _split_items_by_budget(
+        items=items,
+        max_prompt_tokens=max_prompt_tokens,
+        fixed_overhead_tokens=fixed_overhead_tokens,
+    )
+    partials: list[dict[str, Any]] = []
+    failed_batches = 0
+
+    for i, batch in enumerate(batches):
+        prompt = _build_prompt(data_path, batch, readme_text)
+        try:
+            partial = _call_llm_json(prompt)
+            partials.append(partial)
+        except Exception as exc:
+            failed_batches += 1
+            print(f"[WARN] 关键词 `{keyword}` 第{i+1}/{len(batches)} 批分析失败: {exc}")
+
+    merged = _merge_partial_reports(partials)
+    merged.setdefault("meta", {})
+    merged["meta"]["keyword"] = keyword
+    merged["meta"]["coverage"] = {
+        "total_batches": len(batches),
+        "success_batches": len(partials),
+        "failed_batches": failed_batches,
+    }
+    return merged
+
+
+def _merge_keyword_reports_global(keyword_reports: list[dict[str, Any]]) -> dict[str, Any]:
+    merged = _merge_partial_reports(keyword_reports)
+    keyword_coverages: list[dict[str, Any]] = []
+    for report in keyword_reports:
+        meta = report.get("meta", {})
+        coverage = meta.get("coverage", {})
+        keyword_coverages.append({
+            "keyword": meta.get("keyword", ""),
+            "total_batches": coverage.get("total_batches", 0),
+            "success_batches": coverage.get("success_batches", 0),
+            "failed_batches": coverage.get("failed_batches", 0),
+        })
+
+    merged.setdefault("meta", {})
+    merged["meta"]["keyword_count"] = len(keyword_reports)
+    merged["meta"]["keyword_coverages"] = keyword_coverages
+    merged["meta"]["generated_at"] = datetime.now().isoformat(timespec="seconds")
+    return merged
+
+
+def analyze_data_multi_stage(
+    keyword_paths: list[str],
+    keywords: list[str],
+    max_prompt_tokens: int,
+) -> dict[str, Any]:
+    if len(keyword_paths) != len(keywords):
+        raise ValueError("keyword_paths 与 keywords 长度不一致，无法进行对应分析。")
+
+    project_root = Path(__file__).resolve().parent
+    readme_text = (project_root / "README.md").read_text(encoding="utf-8")
+    keyword_reports: list[dict[str, Any]] = []
+
+    for keyword, data_path in zip(keywords, keyword_paths):
+        items = _read_jsonl(data_path)
+        print(f">>>开始按关键词分批分析: {keyword}, records={len(items)}")
+        keyword_report = _analyze_keyword_batches(
+            keyword=keyword,
+            data_path=data_path,
+            items=items,
+            readme_text=readme_text,
+            max_prompt_tokens=max_prompt_tokens,
+        )
+        keyword_reports.append(keyword_report)
+
+    return _merge_keyword_reports_global(keyword_reports)
+
+
+def save_global_report(report_json: dict[str, Any], stem: str = "global") -> str:
+    project_root = Path(__file__).resolve().parent
+    future_dir = project_root / "future"
+    future_dir.mkdir(parents=True, exist_ok=True)
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    raw_json_path = future_dir / f"analysis_{stem}_{ts}.raw.json"
+    md_path = future_dir / f"analysis_{stem}_{ts}.md"
+
+    raw_json_path.write_text(
+        json.dumps(report_json, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    md_path.write_text(_render_markdown(report_json), encoding="utf-8")
+    return str(md_path)
+
+
 def generate_keywords(keyword: str) -> list[str]:
     '''
     根据输入关键词，调用大模型派生商机相关关键词
@@ -198,54 +369,3 @@ def generate_keywords(keyword: str) -> list[str]:
 
     result = _call_llm_json(prompt)
     return result.get("keywords", [])
-
-
-def analyze_data(data_path: str) -> str:
-    project_root = Path(__file__).resolve().parent
-    readme_path = project_root / "README.md"
-    future_dir = project_root / "future"
-    future_dir.mkdir(parents=True, exist_ok=True)
-
-    items = _read_jsonl(data_path)
-    print(f">>>读取数据: {data_path}")
-    
-    readme_text = readme_path.read_text(encoding="utf-8")
-    print(f">>>读取README文件: {readme_text}")
-    
-    prompt = _build_prompt(data_path, items, readme_text)
-    print(f">>>构建提示词: {prompt}")
-
-    report_json = _call_llm_json(prompt)
-    print(f">>>得到分析结果: {report_json}")
-
-    # 补 meta 兜底
-    report_json.setdefault("meta", {})
-    report_json["meta"]["source_file"] = data_path
-    report_json["meta"]["record_count"] = len(items)
-    report_json["meta"]["generated_at"] = datetime.now().isoformat(timespec="seconds")
-
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    stem = Path(data_path).stem
-    raw_json_path = future_dir / f"analysis_{stem}_{ts}.raw.json"
-    md_path = future_dir / f"analysis_{stem}_{ts}.md"
-
-    raw_json_path.write_text(
-        json.dumps(report_json, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
-    md_path.write_text(_render_markdown(report_json), encoding="utf-8")
-    print(f">>>保存分析结果: {md_path}")
-
-    return str(md_path)
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="分析指定的 JSONL 数据文件")
-    parser.add_argument(
-        "path",
-        type=str,
-        nargs="?",
-        default="",
-        help="待分析的 JSONL 文件路径（默认使用示例文件）",
-    )
-    args = parser.parse_args()
-    analyze_data(args.path)
