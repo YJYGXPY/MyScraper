@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 from datetime import datetime
@@ -305,27 +306,49 @@ def analyze_data_multi_stage(
     keyword_paths: list[str],
     keywords: list[str],
     max_prompt_tokens: int,
+    analyze_max_concurrency: int = 4,
 ) -> dict[str, Any]:
     if len(keyword_paths) != len(keywords):
         raise ValueError("keyword_paths 与 keywords 长度不一致，无法进行对应分析。")
 
     project_root = Path(__file__).resolve().parent
     readme_text = (project_root / "README.md").read_text(encoding="utf-8")
-    keyword_reports: list[dict[str, Any]] = []
 
-    for keyword, data_path in zip(keywords, keyword_paths):
-        items = _read_jsonl(data_path)
-        print(f">>>开始按关键词分批分析: {keyword}, records={len(items)}")
-        keyword_report = _analyze_keyword_batches(
-            keyword=keyword,
-            data_path=data_path,
-            items=items,
-            readme_text=readme_text,
-            max_prompt_tokens=max_prompt_tokens,
-        )
-        keyword_reports.append(keyword_report)
+    async def _run_parallel() -> tuple[list[dict[str, Any]], list[str]]:
+        semaphore = asyncio.Semaphore(max(1, analyze_max_concurrency))
+        keyword_reports: list[dict[str, Any]] = []
+        failed_keywords: list[str] = []
 
-    return _merge_keyword_reports_global(keyword_reports)
+        async def _run_one(keyword: str, data_path: str) -> None:
+            async with semaphore:
+                try:
+                    items = _read_jsonl(data_path)
+                    print(f"[ANALYZE] keyword={keyword} start, records={len(items)}")
+                    keyword_report = await asyncio.to_thread(
+                        _analyze_keyword_batches,
+                        keyword,
+                        data_path,
+                        items,
+                        readme_text,
+                        max_prompt_tokens,
+                    )
+                    keyword_reports.append(keyword_report)
+                    print(f"[ANALYZE] keyword={keyword} done")
+                except Exception as exc:
+                    failed_keywords.append(keyword)
+                    print(f"[ANALYZE][WARN] keyword={keyword} err={exc}")
+
+        await asyncio.gather(*[_run_one(kw, path) for kw, path in zip(keywords, keyword_paths)])
+        return keyword_reports, failed_keywords
+
+    keyword_reports, failed_keywords = asyncio.run(_run_parallel())
+    if not keyword_reports:
+        raise RuntimeError(f"所有关键词分析失败: {failed_keywords}")
+
+    merged = _merge_keyword_reports_global(keyword_reports)
+    merged.setdefault("meta", {})
+    merged["meta"]["failed_keywords"] = failed_keywords
+    return merged
 
 
 def save_global_report(report_json: dict[str, Any], stem: str = "global") -> str:

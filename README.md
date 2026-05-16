@@ -65,6 +65,7 @@ CLI 当前只保留一个参数：
 - `HEADLESS`：是否无头模式（默认 `False`）
 - `MAX_CONCURRENCY`：并行抓取关键词上限（默认 `5`）
 - `MAX_PROMPT_TOKENS`：单次提示词输入预算上限（默认 `250000`）
+- `ANALYZE_MAX_CONCURRENCY`：关键词级分析并发上限（默认 `4`）
 
 ## 5. 输出目录与文件
 
@@ -186,13 +187,14 @@ xhs_20260512_200406_网球_15.jsonl
 
 ## 7. AI 分析机制（`brain.py`）
 
-`brain.analyze_data_multi_stage(keyword_paths, keywords, max_prompt_tokens)` 的行为：
+`brain.analyze_data_multi_stage(keyword_paths, keywords, max_prompt_tokens, analyze_max_concurrency)` 的行为：
 
 1. 读取每个关键词对应的 `jsonl`
 2. 读取 `README.md` 作为规则上下文
 3. 按 `max_prompt_tokens` 做关键词内分批分析
-4. 对每个关键词分批结果先归并，再跨关键词全局归并
-5. 结果补充 `meta` 后保存为：
+4. 按 `analyze_max_concurrency` 对关键词分析任务并行执行（关键词内批次仍串行）
+5. 对每个关键词分批结果先归并，再跨关键词全局归并
+6. 结果补充 `meta` 后保存为：
    - `future/*.raw.json`
    - `future/*.md`
 
@@ -211,6 +213,7 @@ xhs_20260512_200406_网球_15.jsonl
 
 - `main.py` 会先通过 `brain.generate_keywords(...)` 派生关键词列表
 - 第二步执行统一登录预检，第三步对关键词并行抓取（并发上限由 `MAX_CONCURRENCY` 控制）
+- 抓取完成后进入关键词级并行分析（并发上限由 `ANALYZE_MAX_CONCURRENCY` 控制）
 - 单个关键词抓取失败时会记录并跳过，不会直接终止全部任务
 - 若全部关键词都失败，流程会抛错并停止（不进入合并和分析）
 
@@ -239,6 +242,7 @@ report = brain.analyze_data_multi_stage(
     keyword_paths=["data/k1.jsonl", "data/k2.jsonl"],
     keywords=["关键词1", "关键词2"],
     max_prompt_tokens=110000,
+    analyze_max_concurrency=4,
 )
 result_path = brain.save_global_report(report, stem="custom")
 print(result_path)

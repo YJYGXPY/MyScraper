@@ -12,6 +12,7 @@ MAX_ITEMS = 30 # 最大爬取数量[***内部配置***]
 HEADLESS = False # 是否无头模式[***内部配置***]
 MAX_CONCURRENCY = 5 # 并行抓取关键词数量上限[***内部配置***]
 MAX_PROMPT_TOKENS = 250000 # 大模型输入预算上限[***内部配置***]
+ANALYZE_MAX_CONCURRENCY = 4 # 关键词级分析并发上限[***内部配置***]
 
 # 常量
 DATA_PATH = "data/" # 数据保存路径
@@ -123,6 +124,7 @@ def run_pipeline(keyword: str) -> str:
         keyword_paths=saved_paths,
         keywords=active_keywords,
         max_prompt_tokens=MAX_PROMPT_TOKENS,
+        analyze_max_concurrency=ANALYZE_MAX_CONCURRENCY,
     )
     report_path = brain.save_global_report(report_json, stem=keyword)
     print(f">>>全局分析完成，报告输出: {report_path}")
