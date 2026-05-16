@@ -237,3 +237,15 @@ def analyze_data(data_path: str) -> str:
     print(f">>>保存分析结果: {md_path}")
 
     return str(md_path)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="分析指定的 JSONL 数据文件")
+    parser.add_argument(
+        "path",
+        type=str,
+        nargs="?",
+        default="",
+        help="待分析的 JSONL 文件路径（默认使用示例文件）",
+    )
+    args = parser.parse_args()
+    analyze_data(args.path)
