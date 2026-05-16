@@ -13,29 +13,21 @@ SYSTEM_PROMPT = """
 
 load_dotenv()
 
-LLM_CONFIG = {
-    "ark": {
-        "api_key": os.getenv("ARK_API_KEY", ""),
-        "base_url": os.getenv("ARK_BASE_URL", ""),
-        "model": os.getenv("ARK_MODEL", ""),
+def _load_llm_config() -> dict[str, str]:
+    config = {
+        "LLM_API_KEY": os.getenv("LLM_API_KEY", ""),
+        "LLM_BASE_URL": os.getenv("LLM_BASE_URL", ""),
+        "LLM_MODEL": os.getenv("LLM_MODEL", ""),
     }
-}
-
-def _get_provider_config(provider: str) -> dict[str, str]:
-    if provider not in LLM_CONFIG:
-        raise ValueError(f"不支持的 provider: {provider}")
-
-    config = LLM_CONFIG[provider]
-    required_keys = ["api_key", "base_url", "model"]
-    missing = [k for k in required_keys if not config.get(k)]
+    missing = [k for k, v in config.items() if not v]
     if missing:
         raise ValueError(
-            f"{provider} 配置缺少必填项: {', '.join(missing)}。请检查 .env 文件。"
+            f"LLM 配置缺少必填项: {', '.join(missing)}。请检查环境变量。"
         )
     return {
-        "api_key": str(config["api_key"]),
-        "base_url": str(config["base_url"]),
-        "model": str(config["model"]),
+        "api_key": str(config["LLM_API_KEY"]),
+        "base_url": str(config["LLM_BASE_URL"]),
+        "model": str(config["LLM_MODEL"]),
     }
 
 def _create_client(config: dict[str, str]) -> OpenAI:
@@ -45,7 +37,7 @@ def _create_client(config: dict[str, str]) -> OpenAI:
     )
 
 def chat(prompt: str, provider: str = "ark") -> str:
-    config = _get_provider_config(provider)
+    config = _load_llm_config()
     client = _create_client(config)
     response = client.chat.completions.create(
         model=config["model"],
