@@ -8,10 +8,11 @@ import brain
 
 # 可修改配置
 KEYWORD = "羽毛球鞋" # 搜索关键词[***脚本参数***]
-MAX_ITEMS = 30 # 最大爬取数量[***脚本参数***]
-HEADLESS = False # 是否无头模式[***脚本参数***]
-MAX_CONCURRENCY = 2 # 并行抓取关键词数量上限[***脚本参数***]
+MAX_ITEMS = 1 # 最大爬取数量[***内部配置***]
+HEADLESS = False # 是否无头模式[***内部配置***]
+MAX_CONCURRENCY = 5 # 并行抓取关键词数量上限[***内部配置***]
 
+# 常量
 DATA_PATH = "data/" # 数据保存路径
 
 
@@ -81,9 +82,7 @@ async def _scrape_keywords_parallel(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="小红书爬虫")
-    parser.add_argument("--key_word", type=str, default=KEYWORD, help="搜索关键词（不能为空）")
-    parser.add_argument("--max_items", type=int, default=MAX_ITEMS, help="搜索关键词（正整数，建议 <= 500）")
-    parser.add_argument("--headless", type=bool, default=HEADLESS, help="是否无头模式，默认为否")
+    parser.add_argument("key_word", type=str, nargs="?", default=KEYWORD, help="你想探索的方向（关键词）")
     args = parser.parse_args()
 
     # 1. 派生关键词
@@ -96,8 +95,8 @@ if __name__ == "__main__":
     saved_paths, failed_keywords = asyncio.run(
         _scrape_keywords_parallel(
             all_keywords,
-            args.max_items,
-            args.headless,
+            MAX_ITEMS if MAX_ITEMS <= len(all_keywords) else len(all_keywords),
+            HEADLESS,
             max_concurrency=MAX_CONCURRENCY,
         )
     )
@@ -108,7 +107,7 @@ if __name__ == "__main__":
 
     # 3. 合并数据
     if len(saved_paths) > 1:
-        merged_path = _merge_jsonl(saved_paths, args.key_word, args.max_items)
+        merged_path = _merge_jsonl(saved_paths, args.key_word, MAX_ITEMS)
         print(f">>>已合并 {len(saved_paths)} 个文件到: {merged_path}")
     else:
         merged_path = saved_paths[0]

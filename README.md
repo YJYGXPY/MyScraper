@@ -33,22 +33,18 @@ ARK_MODEL=your_model_name
 
 ## 3. 运行方式（推荐）
 
-默认执行完整流程：先爬取，再分析。
+默认执行完整流程：先派生关键词，再并行爬取，最后合并并分析。
+
+使用位置参数传入“探索方向”：
+
+```bash
+uv run python main.py 游戏赛道
+```
+
+如果不传参数，会使用内置默认关键词（`羽毛球鞋`）：
 
 ```bash
 uv run python main.py
-```
-
-指定关键词与数量：
-
-```bash
-uv run python main.py --key_word 网球 --max_items 5
-```
-
-无头模式：
-
-```bash
-uv run python main.py --key_word 网球 --max_items 5 --headless True
 ```
 
 查看参数帮助：
@@ -59,18 +55,22 @@ uv run python main.py -h
 
 ## 4. 参数说明
 
-- `--key_word`：搜索关键词（字符串），默认 `羽毛球鞋`
-- `--max_items`：最大爬取数量（整数），默认 `30`
-- `--headless`：是否无头模式（布尔），默认 `False`
+CLI 当前只保留一个参数：
 
-备注：
-- 当前脚本中 `--headless` 建议显式传 `True` 开启；不传即使用默认 `False`
+- `key_word`（位置参数）：用户想探索的方向（关键词字符串）
+
+其余运行配置为脚本内部常量（`main.py`）：
+
+- `MAX_ITEMS`：每个关键词最大爬取数量（默认 `30`）
+- `HEADLESS`：是否无头模式（默认 `False`）
+- `MAX_CONCURRENCY`：并行抓取关键词上限（默认 `2`）
 
 ## 5. 输出目录与文件
 
 ### 5.1 爬取数据（`data/`）
 
 - 输出目录：`data/`
+- 关键词抓取采用并行执行（受 `MAX_CONCURRENCY` 限制）
 - 文件名格式：
 
 ```text
@@ -83,7 +83,25 @@ xhs_{时间戳}_{关键词}_{max_items}.jsonl
 xhs_20260512_200406_网球_15.jsonl
 ```
 
-### 5.2 分析结果（`future/`）
+如果派生出多个关键词，`main.py` 会在爬取后自动合并为一个文件：
+
+```text
+xhs_{时间戳}_{原始关键词}_{max_items}_merged.jsonl
+```
+
+### 5.2 检查点（`data/checkpoints/`）
+
+为支持中断恢复，抓取过程会持续写入检查点：
+
+- 输出目录：`data/checkpoints/`
+- 文件名格式：
+
+```text
+{keyword_hash}.run_state.json
+```
+
+检查点中包含运行状态、已抓取进度、失败重试队列等信息。
+### 5.3 分析结果（`future/`）
 
 `main.py` 在爬取完成后会自动调用 `brain.analyze_data(saved_path)`，并将分析结果写入 `future/`：
 
@@ -192,22 +210,29 @@ xhs_20260512_200406_网球_15.jsonl
 - 登录成功后会保存登录态到 `state.json`
 - 后续运行会复用本地登录态（若有效）
 
-## 9. 调试说明
+## 9. 并行与失败处理说明
+
+- `main.py` 会先通过 `brain.generate_keywords(...)` 派生关键词列表
+- 第二步对关键词并行抓取（并发上限由 `MAX_CONCURRENCY` 控制）
+- 单个关键词抓取失败时会记录并跳过，不会直接终止全部任务
+- 若全部关键词都失败，流程会抛错并停止（不进入合并和分析）
+
+## 10. 调试说明
 
 可开启 Playwright 调试环境变量：
 
 ```bash
-PWDEBUG=1 uv run python main.py --key_word 网球 --max_items 5
+PWDEBUG=1 uv run python main.py 网球
 ```
 
-## 10. 常见问题
+## 11. 常见问题
 
-- 参数无效：先用 `-h` 检查参数名是否正确
+- 参数无效：先用 `-h` 检查参数说明（当前仅支持位置参数 `key_word`）
 - 终端出现 `bash: [200~$: command not found`：通常是粘贴了控制字符，手动重敲命令
 - LLM 报配置缺失：检查 `.env` 是否包含 `ARK_API_KEY / ARK_BASE_URL / ARK_MODEL`
 - 输出为空或 JSON 解析失败：检查模型是否遵守“仅输出 JSON”约束，必要时更换模型或缩小输入规模
 
-## 11. 独立调用分析（可选）
+## 12. 独立调用分析（可选）
 
 如果只想对已存在的 `jsonl` 文件做分析，可在 Python 中直接调用：
 
@@ -217,7 +242,7 @@ result_path = brain.analyze_data("data/your_file.jsonl")
 print(result_path)
 ```
 
-## 12. 版本控制说明
+## 13. 版本控制说明
 
 以下本地产物默认不会提交到 Git：
 - `data/`

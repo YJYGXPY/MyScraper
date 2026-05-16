@@ -134,7 +134,7 @@ def _call_llm_json(prompt: str, provider: str = "ark", max_retry: int = 2) -> di
     current_prompt = prompt
     last_err: Exception | None = None
     for i in range(max_retry + 1):
-        print(f">>>大模型思考中...:尝试{i+1}")
+        print(f">>>大模型思考中...:第{i+1}次尝试")
         raw = chat(current_prompt, provider=provider)
         try:
             return json.loads(raw)
