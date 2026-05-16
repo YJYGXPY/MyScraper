@@ -19,16 +19,16 @@ uv sync
 
 ## 2. 配置 `.env`（LLM）
 
-项目默认使用 `ark` 作为模型提供方。请在项目根目录创建 `.env`：
+请在项目根目录创建 `.env` 并配置 LLM 连接信息：
 
 ```env
-ARK_API_KEY=your_api_key
-ARK_BASE_URL=https://your-ark-compatible-endpoint/v1
-ARK_MODEL=your_model_name
+LLM_API_KEY=your_api_key
+LLM_BASE_URL=https://your-llm-compatible-endpoint/v1
+LLM_MODEL=your_model_name
 ```
 
 说明：
-- `brain.py` 会从 `.env` 读取以上 3 个变量
+- `brain.py` 会从 `.env` 读取以上 3 个 LLM 变量
 - 任一变量缺失会抛错并提示检查 `.env`
 
 ## 3. 运行方式（推荐）
@@ -229,7 +229,7 @@ PWDEBUG=1 uv run python main.py 网球
 
 - 参数无效：先用 `-h` 检查参数说明（当前仅支持位置参数 `key_word`）
 - 终端出现 `bash: [200~$: command not found`：通常是粘贴了控制字符，手动重敲命令
-- LLM 报配置缺失：检查 `.env` 是否包含 `ARK_API_KEY / ARK_BASE_URL / ARK_MODEL`
+- LLM 报配置缺失：检查 `.env` 是否包含 `LLM_API_KEY / LLM_BASE_URL / LLM_MODEL`
 - 输出为空或 JSON 解析失败：检查模型是否遵守“仅输出 JSON”约束，必要时更换模型或缩小输入规模
 
 ## 12. 独立调用分析（可选）

@@ -36,7 +36,7 @@ def _create_client(config: dict[str, str]) -> OpenAI:
         base_url=config["base_url"],
     )
 
-def chat(prompt: str, provider: str = "ark") -> str:
+def chat(prompt: str) -> str:
     config = _load_llm_config()
     client = _create_client(config)
     response = client.chat.completions.create(
@@ -122,12 +122,12 @@ all_records(全量):
 """.strip()
 
 
-def _call_llm_json(prompt: str, provider: str = "ark", max_retry: int = 2) -> dict[str, Any]:
+def _call_llm_json(prompt: str, max_retry: int = 2) -> dict[str, Any]:
     current_prompt = prompt
     last_err: Exception | None = None
     for i in range(max_retry + 1):
         print(f">>>大模型思考中...:第{i+1}次尝试")
-        raw = chat(current_prompt, provider=provider)
+        raw = chat(current_prompt)
         try:
             return json.loads(raw)
         except Exception as e:
@@ -174,12 +174,11 @@ def _render_markdown(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def generate_keywords(keyword: str, provider: str = "ark") -> list[str]:
+def generate_keywords(keyword: str) -> list[str]:
     '''
     根据输入关键词，调用大模型派生商机相关关键词
     Args:
         keyword: 原始关键词
-        provider: LLM 提供商
     Returns:
         list[str]: 派生关键词列表（最多5个，不含原始关键词）
     '''
@@ -197,11 +196,11 @@ def generate_keywords(keyword: str, provider: str = "ark") -> list[str]:
 {keyword}
 """.strip()
 
-    result = _call_llm_json(prompt, provider=provider)
+    result = _call_llm_json(prompt)
     return result.get("keywords", [])
 
 
-def analyze_data(data_path: str, provider: str = "ark") -> str:
+def analyze_data(data_path: str) -> str:
     project_root = Path(__file__).resolve().parent
     readme_path = project_root / "README.md"
     future_dir = project_root / "future"
@@ -216,7 +215,7 @@ def analyze_data(data_path: str, provider: str = "ark") -> str:
     prompt = _build_prompt(data_path, items, readme_text)
     print(f">>>构建提示词: {prompt}")
 
-    report_json = _call_llm_json(prompt, provider=provider)
+    report_json = _call_llm_json(prompt)
     print(f">>>得到分析结果: {report_json}")
 
     # 补 meta 兜底
