@@ -8,7 +8,7 @@ import brain
 
 # 可修改配置
 KEYWORD = "羽毛球鞋" # 搜索关键词[***脚本参数***]
-MAX_ITEMS = 10 # 最大爬取数量[***内部配置***]
+MAX_ITEMS = 30 # 最大爬取数量[***内部配置***]
 HEADLESS = False # 是否无头模式[***内部配置***]
 MAX_CONCURRENCY = 5 # 并行抓取关键词数量上限[***内部配置***]
 
