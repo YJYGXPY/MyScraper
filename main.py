@@ -103,9 +103,9 @@ def run_pipeline(keyword: str) -> str:
     saved_paths, failed_keywords = asyncio.run(
         _scrape_keywords_parallel(
             all_keywords,
-            MAX_ITEMS if MAX_ITEMS <= len(all_keywords) else len(all_keywords),
+            MAX_ITEMS,
             HEADLESS,
-            max_concurrency=MAX_CONCURRENCY,
+            MAX_CONCURRENCY if MAX_CONCURRENCY <= len(all_keywords) else len(all_keywords),
         )
     )
     if failed_keywords:
